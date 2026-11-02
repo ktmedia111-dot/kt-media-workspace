@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f5">
+  <title>KT MEDIA WORKSPACE</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div id="authScreen" class="auth-screen">
+    <section class="auth-card">
+      <div class="brand-mark">KT<span>•</span></div>
+      <p class="eyebrow">KT MEDIA PRODÜKSİYON</p>
+      <h1>Workspace'e hoş geldin.</h1>
+      <p class="muted">Ekibin, çekimlerin ve teslim süreçlerin tek yerde.</p>
+      <div class="tabs"><button class="tab active" data-auth="login">Giriş yap</button><button class="tab" data-auth="signup">Ekip kaydı</button></div>
+      <form id="authForm">
+        <label>E-posta<input id="email" type="email" required placeholder="ornek@ktmedia.com"></label>
+        <label>Şifre<input id="password" type="password" required minlength="6" placeholder="En az 6 karakter"></label>
+        <label id="nameField" class="hidden">Ad soyad<input id="displayName" type="text" placeholder="Ad Soyad"></label>
+        <button class="btn primary full" type="submit" id="authSubmit">Giriş yap</button>
+      </form>
+      <p id="authMessage" class="form-message"></p>
+      <small>Yeni ekip hesapları yönetici onayı sonrası açılır.</small>
+    </section>
+  </div>
+
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">KT<span>•</span></div><div><b>KT MEDIA</b><small>WORKSPACE</small></div></div>
+      <div class="workspace-label">ÇALIŞMA ALANI</div>
+      <nav id="nav">
+        <button class="nav-item active" data-page="dashboard"><span>⌂</span> Genel Bakış</button>
+        <button class="nav-item" data-page="calendar"><span>▦</span> Takvim</button>
+        <button class="nav-item" data-page="jobs"><span>▣</span> Çekim İşleri</button>
+        <button class="nav-item" data-page="editing"><span>◫</span> Montaj Süreci</button>
+        <button class="nav-item" data-page="delivery"><span>⇧</span> Teslim Takibi</button>
+        <button class="nav-item" data-page="archive"><span>▤</span> Arşiv</button>
+        <button class="nav-item" data-page="team"><span>♙</span> Ekip Yönetimi</button>
+        <button class="nav-item admin-only" data-page="finance"><span>₺</span> Finans</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="online-dot"></div><span>Supabase bağlantı alanı</span></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><p class="eyebrow" id="dateLabel">KT MEDIA PRODÜKSİYON</p><h2 id="pageTitle">Genel Bakış</h2></div>
+        <div class="top-actions"><div class="search-box">⌕ <input id="globalSearch" placeholder="İşlerde ara..."></div><button class="btn primary" id="newJobBtn">＋ Yeni İş</button><div class="user-chip"><div class="avatar" id="avatar">KT</div><div><b id="userName">Kullanıcı</b><small id="userRole">Ekip</small></div><button id="logoutBtn" class="icon-btn" title="Çıkış">↪</button></div></div>
+      </header>
+      <section id="content" class="content"></section>
+      <footer>KT MEDIA WORKSPACE <span>•</span> Dahili operasyon platformu</footer>
+    </main>
+  </div>
+
+  <dialog id="jobDialog" class="modal">
+    <form id="jobForm" method="dialog">
+      <div class="modal-head"><div><p class="eyebrow">İŞ YÖNETİMİ</p><h3>Yeni çekim işi</h3></div><button class="icon-btn" type="button" data-close>✕</button></div>
+      <div class="form-grid">
+        <label class="wide">İş / müşteri adı<input name="title" required placeholder="Örn. Ayşe & Mehmet Düğün"></label>
+        <label>İş türü<select name="job_type"><option>Düğün</option><option>Nişan</option><option>Kına</option><option>Dış Çekim</option><option>Kurumsal</option><option>Baby</option><option>Diğer</option></select></label>
+        <label>Çekim tarihi<input name="shoot_date" type="date" required></label>
+        <label>Lokasyon<input name="location" placeholder="İzmir / ..."></label>
+        <label>Sorumlu ekip<input name="assigned_to" placeholder="Ekip üyesi"></label>
+        <label>Durum<select name="status"><option>Planlandı</option><option>Çekim Tamamlandı</option><option>Montajda</option><option>Teslime Hazır</option><option>Teslim Edildi</option></select></label>
+        <label class="wide">Notlar<textarea name="notes" rows="3" placeholder="İş detayları..."></textarea></label>
+      </div>
+      <div class="modal-actions"><button type="button" class="btn ghost" data-close>Vazgeç</button><button type="submit" class="btn primary">Kaydet</button></div>
+    </form>
+  </dialog>
+  <div id="toast" class="toast"></div>
+</body>
+</html>
