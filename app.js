@@ -68,6 +68,12 @@
             <button id="notificationMarkAll" type="button" style="border:0;background:transparent;color:#92733f;font-size:12px;cursor:pointer">Tümünü okundu yap</button>
           </div>
           <div id="notificationList"><div style="padding:18px 4px;color:#858585;font-size:13px">Bildirimler yükleniyor...</div></div>
+          ${isAdmin() ? `
+            <div style="border-top:1px solid #eee;margin-top:12px;padding-top:12px">
+              <button id="notificationTrackingToggle" type="button" style="width:100%;padding:9px 10px;border:1px solid #e8e5df;border-radius:9px;background:#faf9f6;color:#282828;font-weight:700;cursor:pointer">Personel okundu takibi</button>
+              <div id="notificationTracking" style="display:none;margin-top:10px"><div style="color:#888;font-size:12px">Takip bilgileri yükleniyor...</div></div>
+            </div>
+          ` : ""}
         </div>
       </div>
     `);
@@ -89,6 +95,13 @@
     });
 
     $("#notificationMarkAll").addEventListener("click", markAllNotificationsRead);
+    const trackingToggle = $("#notificationTrackingToggle");
+    if (trackingToggle) trackingToggle.addEventListener("click", async () => {
+      const panel = $("#notificationTracking");
+      const opening = panel.style.display === "none";
+      panel.style.display = opening ? "block" : "none";
+      if (opening) await loadAdminNotificationTracking();
+    });
     document.addEventListener("click", event => {
       const area = $("#notificationArea");
       if (area && !area.contains(event.target)) $("#notificationPanel").style.display = "none";
@@ -138,6 +151,52 @@
     }
     notifications = data || [];
     renderNotifications();
+  }
+
+  async function loadAdminNotificationTracking() {
+    const panel = $("#notificationTracking");
+    if (!panel || !isAdmin()) return;
+    panel.innerHTML = `<div style="padding:8px 2px;color:#888;font-size:12px">Takip bilgileri yükleniyor...</div>`;
+
+    const { data: rows, error } = await client
+      .from("notifications")
+      .select("id,user_id,job_id,title,body,created_at,read_at")
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (error) {
+      panel.innerHTML = `<div style="padding:8px 2px;color:#b33;font-size:12px">Takip bilgileri alınamadı. Supabase yönetici okuma iznini kontrol edin: ${escapeHTML(error.message)}</div>`;
+      console.error("Yönetici bildirim takibi:", error.message);
+      return;
+    }
+
+    const ids = [...new Set((rows || []).map(row => row.user_id))];
+    let people = [];
+    if (ids.length) {
+      const result = await client.from("profiles").select("id,display_name").in("id", ids);
+      if (result.error) {
+        panel.innerHTML = `<div style="padding:8px 2px;color:#b33;font-size:12px">Personel adları alınamadı: ${escapeHTML(result.error.message)}</div>`;
+        return;
+      }
+      people = result.data || [];
+    }
+    const names = Object.fromEntries(people.map(person => [person.id, person.display_name || "İsimsiz personel"]));
+
+    if (!rows || !rows.length) {
+      panel.innerHTML = `<div style="padding:10px 2px;color:#888;font-size:12px">Henüz personele gönderilmiş bildirim yok.</div>`;
+      return;
+    }
+
+    panel.innerHTML = rows.map(row => `
+      <div style="padding:10px 2px;border-bottom:1px solid #f0eee9">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <strong style="font-size:12px;color:#292929">${escapeHTML(names[row.user_id] || "Bilinmeyen personel")}</strong>
+          <span style="white-space:nowrap;font-size:10px;font-weight:700;color:${row.read_at ? '#23845b' : '#b7791f'}">${row.read_at ? '✓ OKUNDU' : '● BEKLİYOR'}</span>
+        </div>
+        <div style="margin-top:4px;font-size:11px;color:#555">${escapeHTML(row.title)}</div>
+        <div style="margin-top:3px;font-size:10px;color:#999">Gönderim: ${new Date(row.created_at).toLocaleString('tr-TR')}${row.read_at ? ` · Okunma: ${new Date(row.read_at).toLocaleString('tr-TR')}` : ''}</div>
+      </div>
+    `).join("");
   }
 
   async function markNotificationRead(id) {
