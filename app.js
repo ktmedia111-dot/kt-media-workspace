@@ -20,6 +20,35 @@
   let authMode = "login";
   let calendarDate = new Date();
 
+
+  // Web Push bildirimleri
+  const VAPID_PUBLIC_KEY = "BNIDnBKxPqkTTmVODBfKUWS5Nr4sMM4uCCFz_Xd4kAHh2v-2vwTE9XJ-RXnLH8-9fKPvIsqjAfIsKcNpmBxWDQ8";
+
+  function urlBase64ToUint8Array(value) {
+    const padding = "=".repeat((4 - value.length % 4) % 4);
+    const raw = atob((value + padding).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from([...raw].map(ch => ch.charCodeAt(0)));
+  }
+
+  async function enablePushNotifications() {
+    if (!user) return toast("Önce giriş yapmalısınız.");
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return toast("Bu tarayıcı Web Push desteklemiyor.");
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") return toast("Bildirim izni verilmedi.");
+      const registration = await navigator.serviceWorker.register("./service-worker.js");
+      const subscription = await registration.pushManager.getSubscription() || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+      const { error } = await client.from("push_subscriptions").upsert({ user_id: user.id, endpoint: subscription.endpoint, subscription: subscription.toJSON(), updated_at: new Date().toISOString() }, { onConflict: "user_id,endpoint" });
+      if (error) throw error;
+      toast("Bu cihazda bildirimler etkinleştirildi.");
+    } catch (error) { console.error("Push kurulumu:", error); toast("Bildirim kurulamadı: " + error.message); }
+  }
+
+  async function sendPushForJob(jobId) {
+    try { const { error } = await client.functions.invoke("send-job-push", { body: { job_id: jobId } }); if (error) console.error("Push gönderimi:", error); }
+    catch (error) { console.error("Push gönderimi:", error); }
+  }
+
   const pageTitles = {
     dashboard: "Genel Bakış",
     calendar: "Takvim",
@@ -67,6 +96,7 @@
             <strong style="font-size:15px">Bildirimler</strong>
             <button id="notificationMarkAll" type="button" style="border:0;background:transparent;color:#92733f;font-size:12px;cursor:pointer">Tümünü okundu yap</button>
           </div>
+          <button id="enablePushButton" type="button" style="width:100%;padding:10px;margin:0 0 10px;border:1px solid #e8e5df;border-radius:9px;background:#faf9f6;color:#282828;font-weight:700;cursor:pointer">Bu cihazda bildirimleri aç</button>
           <div id="notificationList"><div style="padding:18px 4px;color:#858585;font-size:13px">Bildirimler yükleniyor...</div></div>
           ${isAdmin() ? `
             <div style="border-top:1px solid #eee;margin-top:12px;padding-top:12px">
@@ -77,6 +107,8 @@
         </div>
       </div>
     `);
+
+    $("#enablePushButton").addEventListener("click", enablePushNotifications);
 
     $("#notificationToggle").addEventListener("click", async () => {
       const panel = $("#notificationPanel");
@@ -606,6 +638,7 @@
       el.classList.toggle("hidden", !isAdmin());
     });
 
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(console.error);
     await loadTeamMembers();
     await loadJobs();
     mountNotificationUI();
@@ -718,9 +751,10 @@
     };
 
     try {
-      const { error } = await client.from("jobs").insert(record);
+      const { data: insertedJob, error } = await client.from("jobs").insert(record).select("id").single();
       if (error) throw error;
 
+      if (record.assigned_to) await sendPushForJob(insertedJob.id);
       $("#jobDialog").close();
       await loadJobs();
       await render();
