@@ -124,6 +124,7 @@
       $("#notificationPanel").style.display = "none";
       page = "jobs";
       await render();
+      focusJob(item.dataset.jobId);
     });
 
     $("#notificationMarkAll").addEventListener("click", markAllNotificationsRead);
@@ -156,7 +157,7 @@
     }
 
     list.innerHTML = notifications.map(item => `
-      <button type="button" data-notification-id="${escapeHTML(item.id)}" style="display:block;width:100%;text-align:left;padding:12px 10px;margin:0 0 7px;border:1px solid ${item.read_at ? '#eee' : '#e7d8b8'};border-radius:10px;background:${item.read_at ? '#fff' : '#fbf7ef'};cursor:pointer">
+      <button type="button" data-notification-id="${escapeHTML(item.id)}" data-job-id="${escapeHTML(item.job_id || "")}" style="display:block;width:100%;text-align:left;padding:12px 10px;margin:0 0 7px;border:1px solid ${item.read_at ? '#eee' : '#e7d8b8'};border-radius:10px;background:${item.read_at ? '#fff' : '#fbf7ef'};cursor:pointer">
         <span style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:#282828">
           ${item.read_at ? '' : '<span style="width:7px;height:7px;border-radius:50%;background:#c59a50;display:inline-block"></span>'}
           ${escapeHTML(item.title)}
@@ -295,6 +296,22 @@
     return "neutral";
   }
 
+  function focusJob(jobId) {
+    if (!jobId) return;
+    const row = document.querySelector(`[data-job-row="${CSS.escape(String(jobId))}"]`);
+    if (!row) {
+      toast("İlgili iş listede bulunamadı.");
+      return;
+    }
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.style.outline = "3px solid #c59a50";
+    row.style.background = "#fff8e8";
+    setTimeout(() => {
+      row.style.outline = "";
+      row.style.background = "";
+    }, 5000);
+  }
+
   function jobRows(list) {
     if (!list.length) {
       return `<div class="empty">Henüz kayıtlı iş bulunmuyor.</div>`;
@@ -317,7 +334,7 @@
           </thead>
           <tbody>
             ${list.map(job => `
-              <tr>
+              <tr id="job-row-${escapeHTML(job.id)}" data-job-row="${escapeHTML(job.id)}">
                 <td><b>${escapeHTML(job.title)}</b></td>
                 <td>${escapeHTML(job.job_type)}</td>
                 <td>${formatDate(job.work_date)}</td>
@@ -644,7 +661,10 @@
     mountNotificationUI();
     await loadNotifications();
     subscribeToNotifications();
+    const requestedJobId = new URLSearchParams(location.search).get("job_id");
+    if (requestedJobId) page = "jobs";
     await render();
+    if (requestedJobId) focusJob(requestedJobId);
   }
 
   async function authSubmit(event) {
