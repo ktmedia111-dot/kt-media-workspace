@@ -495,6 +495,7 @@
       title: form.get("title").trim(),
       job_type: form.get("job_type"),
       location: form.get("location").trim(),
+      assigned_to: (form.get("assigned_to") || "").trim(),
       work_date: workDate,
       delivery_date: deliveryDate,
       status: form.get("status"),
