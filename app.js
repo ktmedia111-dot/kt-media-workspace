@@ -111,6 +111,9 @@
                     <button class="btn ghost" data-status="${job.id}">
                       Durum değiştir
                     </button>
+                    <button class="btn ghost" data-delete-job="${job.id}">
+                      İşi sil
+                    </button>
                   </td>` : ""}
               </tr>
             `).join("")}
@@ -533,6 +536,36 @@
     }
   }
 
+  async function deleteJob(id) {
+    // Güvenlik: Silme işlemi yalnızca onaylı yönetici hesabına açıktır.
+    if (!isAdmin()) {
+      toast("Bu işlem için yönetici yetkisi gerekiyor.");
+      return;
+    }
+
+    const job = jobs.find(item => String(item.id) === String(id));
+    if (!job) {
+      toast("Silinecek iş kaydı bulunamadı.");
+      return;
+    }
+
+    if (!confirm(`"${job.title}" işi kalıcı olarak silinsin mi? Bu işlem geri alınamaz.`)) return;
+
+    const { error } = await client
+      .from("jobs")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      toast("İş silinemedi: " + error.message);
+      return;
+    }
+
+    await loadJobs();
+    await render();
+    toast("İş kaydı silindi.");
+  }
+
   async function changeStatus(id) {
     const job = jobs.find(item => String(item.id) === String(id));
     if (!job) return;
@@ -606,6 +639,10 @@
 
     document.querySelectorAll("[data-status]").forEach(button => {
       button.addEventListener("click", () => changeStatus(button.dataset.status));
+    });
+
+    document.querySelectorAll("[data-delete-job]").forEach(button => {
+      button.addEventListener("click", () => deleteJob(button.dataset.deleteJob));
     });
 
     document.querySelectorAll("[data-approve]").forEach(button => {
