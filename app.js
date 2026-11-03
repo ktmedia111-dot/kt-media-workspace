@@ -298,18 +298,46 @@
 
   function focusJob(jobId) {
     if (!jobId) return;
+    const job = jobs.find(item => String(item.id) === String(jobId));
     const row = document.querySelector(`[data-job-row="${CSS.escape(String(jobId))}"]`);
-    if (!row) {
-      toast("İlgili iş listede bulunamadı.");
+    if (!job) {
+      toast("Bildirime ait iş bulunamadı. İş numarası: " + jobId);
       return;
     }
-    row.scrollIntoView({ behavior: "smooth", block: "center" });
-    row.style.outline = "3px solid #c59a50";
-    row.style.background = "#fff8e8";
-    setTimeout(() => {
-      row.style.outline = "";
-      row.style.background = "";
-    }, 5000);
+    if (row) {
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      row.style.outline = "3px solid #c59a50";
+      row.style.background = "#fff8e8";
+      setTimeout(() => { row.style.outline = ""; row.style.background = ""; }, 5000);
+    }
+    let dialog = document.getElementById("assignedJobDetailDialog");
+    if (!dialog) {
+      dialog = document.createElement("dialog");
+      dialog.id = "assignedJobDetailDialog";
+      dialog.style.cssText = "width:min(560px,calc(100vw - 28px));max-width:560px;border:1px solid #e8e1d5;border-radius:18px;padding:0;box-shadow:0 24px 80px rgba(0,0,0,.25);color:#282828";
+      document.body.appendChild(dialog);
+    }
+    dialog.innerHTML = `
+      <div style="padding:22px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+          <div><p style="margin:0 0 7px;color:#b08b4e;font-size:11px;font-weight:800;letter-spacing:2px">KT MEDIA · İŞ DETAYI</p><h2 style="margin:0;font-size:23px;line-height:1.25">${escapeHTML(job.title || "İsimsiz iş")}</h2></div>
+          <button type="button" id="closeAssignedJobDetail" aria-label="Kapat" style="width:36px;height:36px;border:1px solid #e8e5df;border-radius:10px;background:#fff;font-size:20px;cursor:pointer">×</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:22px">
+          <div style="padding:12px;background:#faf8f4;border-radius:10px"><small style="display:block;color:#888;margin-bottom:5px">İş türü</small><b>${escapeHTML(job.job_type || "-")}</b></div>
+          <div style="padding:12px;background:#faf8f4;border-radius:10px"><small style="display:block;color:#888;margin-bottom:5px">Durum</small><b>${escapeHTML(job.status || "-")}</b></div>
+          <div style="padding:12px;background:#faf8f4;border-radius:10px"><small style="display:block;color:#888;margin-bottom:5px">Çekim tarihi</small><b>${escapeHTML(formatDate(job.work_date))}</b></div>
+          <div style="padding:12px;background:#faf8f4;border-radius:10px"><small style="display:block;color:#888;margin-bottom:5px">Teslim tarihi</small><b>${escapeHTML(formatDate(job.delivery_date))}</b></div>
+          <div style="padding:12px;background:#faf8f4;border-radius:10px;grid-column:1/-1"><small style="display:block;color:#888;margin-bottom:5px">Lokasyon</small><b>${escapeHTML(job.location || "-")}</b></div>
+          <div style="padding:12px;background:#faf8f4;border-radius:10px;grid-column:1/-1"><small style="display:block;color:#888;margin-bottom:5px">Operasyon ataması</small><b>${escapeHTML(job.assigned_to || "-")}</b></div>
+          <div style="padding:12px;background:#faf8f4;border-radius:10px;grid-column:1/-1"><small style="display:block;color:#888;margin-bottom:5px">Notlar</small><div style="white-space:pre-wrap;line-height:1.5">${escapeHTML(job.notes || "Not eklenmemiş.")}</div></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:18px"><button type="button" id="goToAssignedJobList" style="padding:11px 16px;border:0;border-radius:10px;background:#262626;color:#fff;font-weight:700;cursor:pointer">İş listesine dön</button></div>
+      </div>`;
+    const closeDialog = () => dialog.close();
+    dialog.querySelector("#closeAssignedJobDetail").addEventListener("click", closeDialog);
+    dialog.querySelector("#goToAssignedJobList").addEventListener("click", closeDialog);
+    if (!dialog.open) dialog.showModal();
   }
 
   function jobRows(list) {
