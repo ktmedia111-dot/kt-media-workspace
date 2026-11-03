@@ -13,6 +13,8 @@
   let user = null;
   let profile = null;
   let jobs = [];
+  let financeEntries = [];
+  let financeJobFees = {};
   let teamMembers = [];
   let notifications = [];
   let notificationChannel = null;
@@ -614,6 +616,89 @@
     `;
   }
 
+
+  const money = value => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(Number(value || 0));
+  const monthKey = date => String(date || "").slice(0, 7);
+  const financeMonthLabel = key => new Date(key + "-01T12:00:00").toLocaleDateString("tr-TR", { month: "short" });
+
+  async function loadFinanceEntries() {
+    if (!isAdmin()) { financeEntries = []; return; }
+    const { data, error } = await client.from("finance_entries")
+      .select("id,entry_type,amount,entry_date,category,note,job_id")
+      .order("entry_date", { ascending: false });
+    if (error) throw error;
+    financeEntries = data || [];
+    const { data: feeRows, error: feeError } = await client.from("finance_job_values").select("job_id,job_fee");
+    if (feeError) throw feeError;
+    financeJobFees = Object.fromEntries((feeRows || []).map(row => [String(row.job_id), Number(row.job_fee || 0)]));
+  }
+
+  function renderFinance() {
+    if (!isAdmin()) return `<section class="panel">Bu alan yalnızca yetkililere açıktır.</section>`;
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+    const monthEntries = financeEntries.filter(x => monthKey(x.entry_date) === currentMonth);
+    const collections = monthEntries.filter(x => x.entry_type === "income").reduce((s,x)=>s+Number(x.amount||0),0);
+    const expenses = monthEntries.filter(x => x.entry_type === "expense").reduce((s,x)=>s+Number(x.amount||0),0);
+    const booked = jobs.filter(j => monthKey(j.work_date) === currentMonth).reduce((s,j)=>s+Number(financeJobFees[String(j.id)]||0),0);
+    const receivedByJob = {};
+    financeEntries.filter(x=>x.entry_type==="income" && x.job_id).forEach(x=>receivedByJob[x.job_id]=(receivedByJob[x.job_id]||0)+Number(x.amount||0));
+    const receivables = jobs.reduce((s,j)=>s+Math.max(0,Number(financeJobFees[String(j.id)]||0)-(receivedByJob[j.id]||0)),0);
+    const allTimeCollections = financeEntries.filter(x=>x.entry_type==="income").reduce((s,x)=>s+Number(x.amount||0),0);
+    const allTimeExpenses = financeEntries.filter(x=>x.entry_type==="expense").reduce((s,x)=>s+Number(x.amount||0),0);
+    const net = allTimeCollections-allTimeExpenses;
+    const months = Array.from({length:6},(_,i)=>{const d=new Date(now.getFullYear(),now.getMonth()-5+i,1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;});
+    const max = Math.max(1,...months.flatMap(m=>[financeEntries.filter(x=>monthKey(x.entry_date)===m&&x.entry_type==="income").reduce((s,x)=>s+Number(x.amount||0),0),financeEntries.filter(x=>monthKey(x.entry_date)===m&&x.entry_type==="expense").reduce((s,x)=>s+Number(x.amount||0),0)]));
+    const chart = months.map(m=>{
+      const inc=financeEntries.filter(x=>monthKey(x.entry_date)===m&&x.entry_type==="income").reduce((s,x)=>s+Number(x.amount||0),0);
+      const exp=financeEntries.filter(x=>monthKey(x.entry_date)===m&&x.entry_type==="expense").reduce((s,x)=>s+Number(x.amount||0),0);
+      return `<div class="finance-month"><div class="finance-bars"><div class="finance-bar income" style="height:${Math.max(2,inc/max*100)}%" title="Tahsilat ${money(inc)}"></div><div class="finance-bar expense" style="height:${Math.max(2,exp/max*100)}%" title="Gider ${money(exp)}"></div></div><small>${financeMonthLabel(m)}</small><small class="finance-chart-value">${money(inc)}</small></div>`;
+    }).join("");
+    const outstanding = jobs.filter(j=>Number(financeJobFees[String(j.id)]||0)>(receivedByJob[j.id]||0));
+    return `
+      <div class="section-heading"><div><h2>Finans Yönetimi</h2><p class="muted">Tüm tutarlar KDV hariçtir. Finans bilgileri yalnızca yetkililere açıktır.</p></div></div>
+      <div class="stats-grid finance-stats">
+        ${stat("Bu ay iş hacmi",money(booked),"Çekim tarihi bu ay olan işler","▣")}
+        ${stat("Bu ay tahsilat",money(collections),"Kasaya giren ödeme","₺")}
+        ${stat("Bekleyen alacak",money(receivables),"İş bedeli − tahsilatlar","◷")}
+        ${stat("Net nakit sonucu",money(net),"Toplam tahsilat − toplam gider","↗")}
+      </div>
+      <section class="panel finance-panel"><div class="panel-heading"><div><h3>Aylık tahsilat / gider grafiği</h3><small class="muted">Son 6 ay · KDV hariç</small></div><div class="finance-legend"><span><i class="income-dot"></i> Tahsilat</span><span><i class="expense-dot"></i> Gider</span></div></div><div class="finance-chart">${chart}</div></section>
+      <div class="finance-columns">
+        <section class="panel"><h3>Ödeme kaydı ekle</h3><form id="paymentForm" class="finance-form">
+          <label>İlgili iş<select name="job_id" required><option value="">İş seçin</option>${jobs.map(j=>`<option value="${escapeHTML(j.id)}">${escapeHTML(j.title)}</option>`).join("")}</select></label>
+          <label>Ödeme tutarı (₺)<input name="amount" type="number" min="0.01" step="0.01" required></label>
+          <label>Tahsilat tarihi<input name="entry_date" type="date" value="${todayString()}" required></label>
+          <label>Ödeme türü<select name="category"><option>Kapora</option><option>Ara Ödeme</option><option>Kalan Ödeme</option><option>Diğer</option></select></label>
+          <label class="wide">Not<input name="note" placeholder="İsteğe bağlı açıklama"></label>
+          <button class="btn primary" type="submit">Tahsilatı kaydet</button></form></section>
+        <section class="panel"><h3>Gider ekle</h3><form id="expenseForm" class="finance-form">
+          <label>Gider tutarı (₺)<input name="amount" type="number" min="0.01" step="0.01" required></label>
+          <label>Gider tarihi<input name="entry_date" type="date" value="${todayString()}" required></label>
+          <label>Gider kategorisi<select name="category"><option>Personel</option><option>Ekipman</option><option>Ulaşım</option><option>Yemek</option><option>Kira</option><option>Yazılım</option><option>Diğer</option></select></label>
+          <label class="wide">Not<input name="note" placeholder="Gider açıklaması"></label>
+          <button class="btn primary" type="submit">Gideri kaydet</button></form></section>
+      </div>
+      <section class="panel"><div class="panel-heading"><h3>Bekleyen alacaklar</h3><b>${outstanding.length} iş</b></div>
+        ${outstanding.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>İş / Müşteri</th><th>İş bedeli</th><th>Tahsilat</th><th>Kalan</th></tr></thead><tbody>${outstanding.map(j=>{const paid=receivedByJob[j.id]||0;return `<tr><td><b>${escapeHTML(j.title)}</b></td><td>${money(financeJobFees[String(j.id)]||0)}</td><td>${money(paid)}</td><td><b>${money(Math.max(0,Number(financeJobFees[String(j.id)]||0)-paid))}</b></td></tr>`}).join("")}</tbody></table></div>`:`<div class="empty">Bekleyen alacak bulunmuyor.</div>`}
+      </section>
+      <section class="panel"><div class="panel-heading"><h3>Son finans hareketleri</h3></div>
+        ${financeEntries.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Tarih</th><th>Tür</th><th>Kategori</th><th>Açıklama</th><th>Tutar</th></tr></thead><tbody>${financeEntries.slice(0,30).map(x=>`<tr><td>${formatDate(x.entry_date)}</td><td>${x.entry_type==="income"?"Tahsilat":"Gider"}</td><td>${escapeHTML(x.category||"-")}</td><td>${escapeHTML(x.note||jobs.find(j=>String(j.id)===String(x.job_id))?.title||"-")}</td><td><b>${money(x.amount)}</b></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Henüz finans hareketi yok.</div>`}
+      </section>`;
+  }
+
+  async function saveFinanceEntry(form, entryType) {
+    if (!isAdmin()) return toast("Finans işlemi için yetki gerekiyor.");
+    const data = new FormData(form);
+    const amount = Number(data.get("amount"));
+    if (!(amount > 0)) return toast("Geçerli bir tutar girin.");
+    const row = { entry_type: entryType, amount, entry_date: data.get("entry_date"), category: data.get("category"), note: (data.get("note")||"").trim(), created_by: user.id };
+    if (entryType === "income") row.job_id = data.get("job_id");
+    const { error } = await client.from("finance_entries").insert(row);
+    if (error) return toast("Kayıt hatası: " + error.message);
+    await loadFinanceEntries(); await render(); toast(entryType==="income"?"Tahsilat kaydedildi.":"Gider kaydedildi.");
+  }
+
   async function render() {
     $("#pageTitle").textContent = pageTitles[page] || "Genel Bakış";
 
@@ -633,9 +718,8 @@
     }
     if (page === "team") html = await renderTeam();
     if (page === "finance") {
-      html = isAdmin()
-        ? `<section class="panel"><h2>Finans</h2><p class="muted">Finans modülü sonraki aşamada mevcut finance_entries tablosunun kolonlarına göre bağlanacak.</p></section>`
-        : `<section class="panel">Bu alan yalnızca yöneticilere açıktır.</section>`;
+      if (!isAdmin()) html = `<section class="panel">Bu alan yalnızca yöneticilere açıktır.</section>`;
+      else { await loadFinanceEntries(); html = renderFinance(); }
     }
 
     $("#content").innerHTML = html;
@@ -840,6 +924,21 @@
       const { data: insertedJob, error } = await client.from("jobs").insert(record).select("id").single();
       if (error) throw error;
 
+      const jobFee = Number(form.get("job_fee") || 0);
+      if (jobFee > 0) {
+        const { error: feeError } = await client.from("finance_job_values").insert({
+          job_id: insertedJob.id, job_fee: jobFee, created_by: user.id
+        });
+        if (feeError) throw new Error("İş kaydedildi ancak iş bedeli kaydedilemedi: " + feeError.message);
+      }
+      const deposit = Number(form.get("deposit_paid") || 0);
+      if (deposit > 0) {
+        const { error: depositError } = await client.from("finance_entries").insert({
+          entry_type: "income", amount: deposit, entry_date: todayString(),
+          category: "Kapora", note: record.title + " · İlk kapora", job_id: insertedJob.id, created_by: user.id
+        });
+        if (depositError) throw new Error("İş kaydedildi ancak kapora kaydedilemedi: " + depositError.message);
+      }
       if (record.assigned_to) await sendPushForJob(insertedJob.id);
       $("#jobDialog").close();
       await loadJobs();
@@ -931,6 +1030,8 @@
   }
 
   function bindPageEvents() {
+    $("#paymentForm")?.addEventListener("submit", event => { event.preventDefault(); saveFinanceEntry(event.currentTarget, "income"); });
+    $("#expenseForm")?.addEventListener("submit", event => { event.preventDefault(); saveFinanceEntry(event.currentTarget, "expense"); });
     $("#dashboardNewJob")?.addEventListener("click", openJobDialog);
     $("#jobsNewJob")?.addEventListener("click", openJobDialog);
 

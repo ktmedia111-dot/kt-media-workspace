@@ -69,6 +69,8 @@
         <label>Çalışma tarihi<input name="work_date" type="date" required></label>
         <label>Lokasyon<input name="location" placeholder="İzmir / ..."></label>
         <label class="wide">Operasyon ataması <small>Birden fazla kişi seçmek için Mac’te ⌘, Windows’ta Ctrl tuşunu basılı tut.</small><select id="jobAssignees" name="assigned_to" multiple size="4"></select></label>
+        <label>İş bedeli (₺ · KDV hariç)<input name="job_fee" type="number" min="0" step="0.01" value="0" placeholder="Örn. 35000"></label>
+        <label>Alınan kapora (₺)<input name="deposit_paid" type="number" min="0" step="0.01" value="0" placeholder="Örn. 10000"></label>
         <label>Durum<select name="status"><option>Planlandı</option><option>Çekim Tamamlandı</option><option>Montajda</option><option>Teslime Hazır</option><option>Teslim Edildi</option></select></label>
         <label class="wide">Notlar<textarea name="notes" rows="3" placeholder="İş detayları..."></textarea></label>
       </div>
