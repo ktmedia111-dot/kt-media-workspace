@@ -542,6 +542,44 @@
     `;
   }
 
+  function renderDelivery() {
+    const today = todayString();
+    const active = jobs.filter(j => j.status !== "Teslim Edildi" && j.delivery_date);
+    const overdue = active.filter(j => j.delivery_date < today)
+      .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date));
+    const upcoming = active.filter(j => j.delivery_date >= today &&
+      Math.round((new Date(j.delivery_date + "T12:00:00") - new Date(today + "T12:00:00")) / 86400000) <= 3)
+      .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date));
+    const ready = jobs.filter(j => j.status === "Teslime Hazır");
+    const delivered = jobs.filter(j => j.status === "Teslim Edildi");
+    const card = (label, value, hint, color) => `
+      <div class="stat" style="border-top:3px solid ${color}">
+        <div class="stat-top"><span>${label}</span></div>
+        <strong>${value}</strong><small>${hint}</small>
+      </div>`;
+    const section = (title, description, list, empty) => `
+      <section class="panel" style="margin-top:18px">
+        <h3>${title} <span class="muted" style="font-size:13px">(${list.length})</span></h3>
+        <p class="muted">${description}</p>
+        ${list.length ? jobRows(list) : `<div class="empty">${empty}</div>`}
+      </section>`;
+    return `
+      <div class="section-heading"><div><h2>Teslimat Kontrol Merkezi</h2>
+        <p class="muted">Teslim tarihlerini otomatik kontrol eder. Gecikmeler iş durumundan bağımsız hesaplanır.</p></div>
+      </div>
+      <div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px">
+        ${card("Gecikmiş işler", overdue.length, "Teslim tarihi geçmiş", "#d94b42")}
+        ${card("Yaklaşan teslimat", upcoming.length, "Önümüzdeki 3 gün", "#c59a50")}
+        ${card("Teslime hazır", ready.length, "Teslim bekliyor", "#438b68")}
+        ${card("Teslim edildi", delivered.length, "Tamamlanan işler", "#6b829c")}
+      </div>
+      ${section("Gecikmiş İşler", "Teslim tarihi geçmiş ve henüz teslim edilmemiş kayıtlar.", overdue, "Gecikmiş iş bulunmuyor. Harika!")}
+      ${section("Yaklaşan Teslimatlar", "Bugün veya önümüzdeki 3 gün içinde teslim edilmesi gereken işler.", upcoming, "Önümüzdeki 3 gün için teslimat yok.")}
+      ${section("Teslime Hazır", "Teslimat için hazır olarak işaretlenen kayıtlar.", ready, "Teslime hazır iş bulunmuyor.")}
+      ${section("Sonuçlanan Teslimatlar", "Teslim edildi olarak işaretlenen işler.", delivered.slice().sort((a,b) => (b.delivery_date || "").localeCompare(a.delivery_date || "")), "Henüz teslim edilmiş iş bulunmuyor.")}
+    `;
+  }
+
   async function renderTeam() {
     if (!isAdmin()) {
       return `<section class="panel">Bu alan yalnızca yöneticilere açıktır.</section>`;
@@ -588,7 +626,7 @@
       html = renderStage("Montajda", "Montaj Süreci", "Kurgu aşamasındaki işler.");
     }
     if (page === "delivery") {
-      html = renderStage("Teslime Hazır", "Teslim Takibi", "Teslime hazır işler.");
+      html = renderDelivery();
     }
     if (page === "archive") {
       html = renderStage("Teslim Edildi", "Arşiv", "Tamamlanmış işler.");
@@ -779,7 +817,7 @@
     }
 
     const delivery = new Date(workDate + "T12:00:00");
-    delivery.setDate(delivery.getDate() + 20);
+    delivery.setDate(delivery.getDate() + 15);
     const deliveryDate = [
       delivery.getFullYear(),
       String(delivery.getMonth() + 1).padStart(2, "0"),
