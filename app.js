@@ -13,6 +13,7 @@
   let user = null;
   let profile = null;
   let jobs = [];
+  let teamMembers = [];
   let page = "dashboard";
   let authMode = "login";
   let calendarDate = new Date();
@@ -86,6 +87,7 @@
               <th>Çekim Tarihi</th>
               <th>Teslim Tarihi</th>
               <th>Lokasyon</th>
+              <th>Operasyon Ataması</th>
               <th>Durum</th>
               ${isAdmin() ? "<th>İşlem</th>" : ""}
             </tr>
@@ -98,6 +100,7 @@
                 <td>${formatDate(job.work_date)}</td>
                 <td>${formatDate(job.delivery_date)}</td>
                 <td>${escapeHTML(job.location || "-")}</td>
+                <td>${job.assigned_to ? job.assigned_to.split(",").map(name => `<span class="assignment-chip">${escapeHTML(name.trim())}</span>`).join(" ") : `<span class="muted">Atanmadı</span>`}</td>
                 <td>
                   <span class="status ${statusClass(job.status)}">
                     ${escapeHTML(job.status)}
@@ -335,6 +338,17 @@
     bindPageEvents();
   }
 
+  async function loadTeamMembers() {
+    if (!isAdmin()) return;
+    const { data, error } = await client
+      .from("profiles")
+      .select("display_name")
+      .eq("approved", true)
+      .order("display_name", { ascending: true });
+    if (error) throw error;
+    teamMembers = (data || []).map(person => person.display_name).filter(Boolean);
+  }
+
   async function loadJobs() {
     const { data, error } = await client
       .from("jobs")
@@ -398,6 +412,7 @@
       el.classList.toggle("hidden", !isAdmin());
     });
 
+    await loadTeamMembers();
     await loadJobs();
     await render();
   }
@@ -464,6 +479,8 @@
     }
 
     $("#jobForm").reset();
+    const assignment = $("#jobAssignees");
+    assignment.innerHTML = teamMembers.map(name => `<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`).join("");
     $("#jobDialog").showModal();
   }
 
@@ -495,7 +512,7 @@
       title: form.get("title").trim(),
       job_type: form.get("job_type"),
       location: form.get("location").trim(),
-      assigned_to: (form.get("assigned_to") || "").trim(),
+      assigned_to: Array.from($("#jobAssignees").selectedOptions).map(option => option.value).join(", "),
       work_date: workDate,
       delivery_date: deliveryDate,
       status: form.get("status"),
