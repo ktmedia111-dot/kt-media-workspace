@@ -14,6 +14,8 @@
   let profile = null;
   let jobs = [];
   let teamMembers = [];
+  let notifications = [];
+  let notificationChannel = null;
   let page = "dashboard";
   let authMode = "login";
   let calendarDate = new Date();
@@ -47,6 +49,136 @@
     el.textContent = message;
     el.classList.add("show");
     setTimeout(() => el.classList.remove("show"), 3500);
+  }
+
+
+  function mountNotificationUI() {
+    if ($("#notificationArea")) return;
+    const logout = $("#logoutBtn");
+    if (!logout) return;
+
+    logout.insertAdjacentHTML("beforebegin", `
+      <div id="notificationArea" style="position:relative;display:inline-flex;align-items:center;margin-right:12px;z-index:1000">
+        <button id="notificationToggle" type="button" aria-label="Bildirimler" title="Bildirimler" style="position:relative;width:42px;height:42px;border:1px solid #e8e5df;border-radius:12px;background:#fff;color:#282828;font-size:21px;cursor:pointer">
+          ♧<span id="notificationBadge" style="display:none;position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;padding:0 4px;border-radius:12px;background:#d94b42;color:#fff;font-size:11px;line-height:18px;font-weight:700"></span>
+        </button>
+        <div id="notificationPanel" style="display:none;position:absolute;right:0;top:50px;width:min(360px,calc(100vw - 32px));max-height:440px;overflow:auto;background:#fff;border:1px solid #e8e5df;border-radius:14px;box-shadow:0 14px 40px rgba(0,0,0,.14);padding:14px;color:#282828">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
+            <strong style="font-size:15px">Bildirimler</strong>
+            <button id="notificationMarkAll" type="button" style="border:0;background:transparent;color:#92733f;font-size:12px;cursor:pointer">Tümünü okundu yap</button>
+          </div>
+          <div id="notificationList"><div style="padding:18px 4px;color:#858585;font-size:13px">Bildirimler yükleniyor...</div></div>
+        </div>
+      </div>
+    `);
+
+    $("#notificationToggle").addEventListener("click", async () => {
+      const panel = $("#notificationPanel");
+      const opening = panel.style.display === "none";
+      panel.style.display = opening ? "block" : "none";
+      if (opening) await loadNotifications();
+    });
+
+    $("#notificationList").addEventListener("click", async event => {
+      const item = event.target.closest("[data-notification-id]");
+      if (!item) return;
+      await markNotificationRead(item.dataset.notificationId);
+      $("#notificationPanel").style.display = "none";
+      page = "jobs";
+      await render();
+    });
+
+    $("#notificationMarkAll").addEventListener("click", markAllNotificationsRead);
+    document.addEventListener("click", event => {
+      const area = $("#notificationArea");
+      if (area && !area.contains(event.target)) $("#notificationPanel").style.display = "none";
+    });
+  }
+
+  function renderNotifications() {
+    const unread = notifications.filter(item => !item.read_at).length;
+    const badge = $("#notificationBadge");
+    if (badge) {
+      badge.textContent = unread > 99 ? "99+" : String(unread);
+      badge.style.display = unread ? "block" : "none";
+    }
+
+    const list = $("#notificationList");
+    if (!list) return;
+    if (!notifications.length) {
+      list.innerHTML = `<div style="padding:18px 4px;color:#858585;font-size:13px">Henüz bildirimin yok.</div>`;
+      return;
+    }
+
+    list.innerHTML = notifications.map(item => `
+      <button type="button" data-notification-id="${escapeHTML(item.id)}" style="display:block;width:100%;text-align:left;padding:12px 10px;margin:0 0 7px;border:1px solid ${item.read_at ? '#eee' : '#e7d8b8'};border-radius:10px;background:${item.read_at ? '#fff' : '#fbf7ef'};cursor:pointer">
+        <span style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:#282828">
+          ${item.read_at ? '' : '<span style="width:7px;height:7px;border-radius:50%;background:#c59a50;display:inline-block"></span>'}
+          ${escapeHTML(item.title)}
+        </span>
+        <span style="display:block;margin-top:5px;color:#656565;font-size:12px;line-height:1.45">${escapeHTML(item.body)}</span>
+        <span style="display:block;margin-top:6px;color:#999;font-size:10px">${new Date(item.created_at).toLocaleString('tr-TR')}</span>
+      </button>
+    `).join("");
+  }
+
+  async function loadNotifications() {
+    if (!user) return;
+    const { data, error } = await client
+      .from("notifications")
+      .select("id,title,body,created_at,read_at,job_id")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(25);
+    if (error) {
+      const list = $("#notificationList");
+      if (list) list.innerHTML = `<div style="padding:12px 4px;color:#b33;font-size:12px">Bildirimler alınamadı. Supabase SQL adımını kontrol edin.</div>`;
+      console.error("Bildirimler alınamadı:", error.message);
+      return;
+    }
+    notifications = data || [];
+    renderNotifications();
+  }
+
+  async function markNotificationRead(id) {
+    const { error } = await client.from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .is("read_at", null);
+    if (error) {
+      toast("Bildirim okunamadı: " + error.message);
+      return;
+    }
+    await loadNotifications();
+  }
+
+  async function markAllNotificationsRead() {
+    const { error } = await client.from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("user_id", user.id)
+      .is("read_at", null);
+    if (error) {
+      toast("Bildirimler güncellenemedi: " + error.message);
+      return;
+    }
+    await loadNotifications();
+    toast("Tüm bildirimler okundu.");
+  }
+
+  function subscribeToNotifications() {
+    if (notificationChannel || !user) return;
+    notificationChannel = client.channel(`notifications-${user.id}`)
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "notifications",
+        filter: `user_id=eq.${user.id}`
+      }, async payload => {
+        await loadNotifications();
+        toast(payload.new?.title || "Yeni iş atandı.");
+      })
+      .subscribe();
   }
 
   function showAuthMessage(message) {
@@ -417,6 +549,9 @@
 
     await loadTeamMembers();
     await loadJobs();
+    mountNotificationUI();
+    await loadNotifications();
+    subscribeToNotifications();
     await render();
   }
 
