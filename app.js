@@ -646,6 +646,7 @@
     const receivables = jobs.reduce((s,j)=>s+Math.max(0,Number(financeJobFees[String(j.id)]||0)-(receivedByJob[j.id]||0)),0);
     const allTimeCollections = financeEntries.filter(x=>x.entry_type==="income").reduce((s,x)=>s+Number(x.amount||0),0);
     const allTimeExpenses = financeEntries.filter(x=>x.entry_type==="expense").reduce((s,x)=>s+Number(x.amount||0),0);
+    const allTimeBooked = Object.values(financeJobFees).reduce((s,v)=>s+Number(v||0),0);
     const net = allTimeCollections-allTimeExpenses;
     const months = Array.from({length:6},(_,i)=>{const d=new Date(now.getFullYear(),now.getMonth()-5+i,1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;});
     const max = Math.max(1,...months.flatMap(m=>[financeEntries.filter(x=>monthKey(x.entry_date)===m&&x.entry_type==="income").reduce((s,x)=>s+Number(x.amount||0),0),financeEntries.filter(x=>monthKey(x.entry_date)===m&&x.entry_type==="expense").reduce((s,x)=>s+Number(x.amount||0),0)]));
@@ -655,36 +656,70 @@
       return `<div class="finance-month"><div class="finance-bars"><div class="finance-bar income" style="height:${Math.max(2,inc/max*100)}%" title="Tahsilat ${money(inc)}"></div><div class="finance-bar expense" style="height:${Math.max(2,exp/max*100)}%" title="Gider ${money(exp)}"></div></div><small>${financeMonthLabel(m)}</small><small class="finance-chart-value">${money(inc)}</small></div>`;
     }).join("");
     const outstanding = jobs.filter(j=>Number(financeJobFees[String(j.id)]||0)>(receivedByJob[j.id]||0));
+    const jobName = id => jobs.find(j=>String(j.id)===String(id))?.title || "İş / müşteri silinmiş";
+    const today = todayString();
     return `
       <div class="section-heading"><div><h2>Finans Yönetimi</h2><p class="muted">Tüm tutarlar KDV hariçtir. Finans bilgileri yalnızca yetkililere açıktır.</p></div></div>
       <div class="stats-grid finance-stats">
         ${stat("Bu ay iş hacmi",money(booked),"Çekim tarihi bu ay olan işler","▣")}
         ${stat("Bu ay tahsilat",money(collections),"Kasaya giren ödeme","₺")}
-        ${stat("Bekleyen alacak",money(receivables),"İş bedeli − tahsilatlar","◷")}
+        ${stat("Bekleyen toplam alacak",money(receivables),"Tüm müşterilerden kalan","◷")}
         ${stat("Net nakit sonucu",money(net),"Toplam tahsilat − toplam gider","↗")}
+      </div>
+      <div class="stats-grid finance-stats" style="margin-top:12px">
+        ${stat("Toplam iş bedeli",money(allTimeBooked),"Kayıtlı tüm işlerin toplamı","▣")}
+        ${stat("Toplam tahsilat",money(allTimeCollections),"Tüm zamanlar","₺")}
+        ${stat("Toplam gider",money(allTimeExpenses),"Tüm zamanlar","−")}
+        ${stat("Kalan alacak",money(receivables),"Henüz tahsil edilmemiş","◷")}
       </div>
       <section class="panel finance-panel"><div class="panel-heading"><div><h3>Aylık tahsilat / gider grafiği</h3><small class="muted">Son 6 ay · KDV hariç</small></div><div class="finance-legend"><span><i class="income-dot"></i> Tahsilat</span><span><i class="expense-dot"></i> Gider</span></div></div><div class="finance-chart">${chart}</div></section>
       <div class="finance-columns">
         <section class="panel"><h3>Ödeme kaydı ekle</h3><form id="paymentForm" class="finance-form">
-          <label>İlgili iş<select name="job_id" required><option value="">İş seçin</option>${jobs.map(j=>`<option value="${escapeHTML(j.id)}">${escapeHTML(j.title)}</option>`).join("")}</select></label>
+          <label>İlgili müşteri / iş<select name="job_id" required><option value="">İş seçin</option>${jobs.map(j=>`<option value="${escapeHTML(j.id)}">${escapeHTML(j.title)}</option>`).join("")}</select></label>
           <label>Ödeme tutarı (₺)<input name="amount" type="number" min="0.01" step="0.01" required></label>
-          <label>Tahsilat tarihi<input name="entry_date" type="date" value="${todayString()}" required></label>
+          <label>Tahsilat tarihi<input name="entry_date" type="date" value="${today}" required></label>
           <label>Ödeme türü<select name="category"><option>Kapora</option><option>Ara Ödeme</option><option>Kalan Ödeme</option><option>Diğer</option></select></label>
           <label class="wide">Not<input name="note" placeholder="İsteğe bağlı açıklama"></label>
           <button class="btn primary" type="submit">Tahsilatı kaydet</button></form></section>
         <section class="panel"><h3>Gider ekle</h3><form id="expenseForm" class="finance-form">
           <label>Gider tutarı (₺)<input name="amount" type="number" min="0.01" step="0.01" required></label>
-          <label>Gider tarihi<input name="entry_date" type="date" value="${todayString()}" required></label>
+          <label>Gider tarihi<input name="entry_date" type="date" value="${today}" required></label>
           <label>Gider kategorisi<select name="category"><option>Personel</option><option>Ekipman</option><option>Ulaşım</option><option>Yemek</option><option>Kira</option><option>Yazılım</option><option>Diğer</option></select></label>
           <label class="wide">Not<input name="note" placeholder="Gider açıklaması"></label>
           <button class="btn primary" type="submit">Gideri kaydet</button></form></section>
       </div>
-      <section class="panel"><div class="panel-heading"><h3>Bekleyen alacaklar</h3><b>${outstanding.length} iş</b></div>
-        ${outstanding.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>İş / Müşteri</th><th>İş bedeli</th><th>Tahsilat</th><th>Kalan</th></tr></thead><tbody>${outstanding.map(j=>{const paid=receivedByJob[j.id]||0;return `<tr><td><b>${escapeHTML(j.title)}</b></td><td>${money(financeJobFees[String(j.id)]||0)}</td><td>${money(paid)}</td><td><b>${money(Math.max(0,Number(financeJobFees[String(j.id)]||0)-paid))}</b></td></tr>`}).join("")}</tbody></table></div>`:`<div class="empty">Bekleyen alacak bulunmuyor.</div>`}
+      <section class="panel"><div class="panel-heading"><h3>Müşteri bazlı bekleyen alacaklar</h3><b>${outstanding.length} müşteri / iş</b></div>
+        ${outstanding.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Müşteri / iş</th><th>İş tarihi</th><th>İletişim</th><th>İş bedeli</th><th>Ödenen</th><th>Kalan alacak</th></tr></thead><tbody>${outstanding.map(j=>{const paid=receivedByJob[j.id]||0;return `<tr><td><b>${escapeHTML(j.title)}</b></td><td>${formatDate(j.work_date)}</td><td>${escapeHTML(j.customer_phone||"-")}<br>${escapeHTML(j.customer_email||"")}</td><td>${money(financeJobFees[String(j.id)]||0)}</td><td>${money(paid)}</td><td><b>${money(Math.max(0,Number(financeJobFees[String(j.id)]||0)-paid))}</b></td></tr>`}).join("")}</tbody></table></div>`:`<div class="empty">Bekleyen alacak bulunmuyor.</div>`}
       </section>
-      <section class="panel"><div class="panel-heading"><h3>Son finans hareketleri</h3></div>
-        ${financeEntries.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Tarih</th><th>Tür</th><th>Kategori</th><th>Açıklama</th><th>Tutar</th></tr></thead><tbody>${financeEntries.slice(0,30).map(x=>`<tr><td>${formatDate(x.entry_date)}</td><td>${x.entry_type==="income"?"Tahsilat":"Gider"}</td><td>${escapeHTML(x.category||"-")}</td><td>${escapeHTML(x.note||jobs.find(j=>String(j.id)===String(x.job_id))?.title||"-")}</td><td><b>${money(x.amount)}</b></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Henüz finans hareketi yok.</div>`}
+      <section class="panel"><div class="panel-heading"><div><h3>Tahsilat ve gider geçmişi</h3><small class="muted">Her kayıt için müşteri, tarih ve silme işlemi</small></div></div>
+        <div class="finance-form" style="margin-bottom:14px"><label>Başlangıç tarihi<input id="financeExportFrom" type="date" value="${currentMonth}-01"></label><label>Bitiş tarihi<input id="financeExportTo" type="date" value="${today}"></label><button class="btn primary" id="exportFinanceBtn" type="button">Excel raporu indir</button></div>
+        ${financeEntries.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Tarih</th><th>Tür</th><th>Müşteri / iş</th><th>Kategori</th><th>Açıklama</th><th>Tutar</th><th>İşlem</th></tr></thead><tbody>${financeEntries.map(x=>`<tr><td>${formatDate(x.entry_date)}</td><td>${x.entry_type==="income"?"Tahsilat":"Gider"}</td><td>${escapeHTML(x.job_id?jobName(x.job_id):"Genel gider")}</td><td>${escapeHTML(x.category||"-")}</td><td>${escapeHTML(x.note||"-")}</td><td><b>${money(x.amount)}</b></td><td><button class="btn ghost" type="button" data-delete-finance="${escapeHTML(x.id)}">Sil</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Henüz finans hareketi yok.</div>`}
       </section>`;
+  }
+
+  async function deleteFinanceEntry(id) {
+    if (!isAdmin()) return toast("Bu işlem için yönetici yetkisi gerekiyor.");
+    const entry = financeEntries.find(x => String(x.id) === String(id));
+    if (!entry) return;
+    if (!confirm(`${entry.entry_type === "income" ? "Tahsilat" : "Gider"} kaydını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`)) return;
+    const { error } = await client.from("finance_entries").delete().eq("id", id);
+    if (error) return toast("Silme hatası: " + error.message);
+    await loadFinanceEntries(); await render(); toast("Finans kaydı silindi.");
+  }
+
+  function exportFinanceReport() {
+    if (!isAdmin()) return toast("Bu işlem için yönetici yetkisi gerekiyor.");
+    const from = $("#financeExportFrom")?.value || "";
+    const to = $("#financeExportTo")?.value || "";
+    if (from && to && from > to) return toast("Başlangıç tarihi bitiş tarihinden sonra olamaz.");
+    const rows = financeEntries.filter(x => (!from || x.entry_date >= from) && (!to || x.entry_date <= to));
+    const jobName = id => jobs.find(j=>String(j.id)===String(id))?.title || "İş / müşteri silinmiş";
+    const csv = [["Tarih","Tür","Müşteri / İş","Telefon","E-posta","Kategori","Açıklama","Tutar (KDV hariç)"], ...rows.map(x=>{const j=jobs.find(j=>String(j.id)===String(x.job_id));return [x.entry_date,x.entry_type==="income"?"Tahsilat":"Gider",x.job_id?jobName(x.job_id):"Genel gider",j?.customer_phone||"",j?.customer_email||"",x.category||"",x.note||"",Number(x.amount||0).toFixed(2)];})];
+    const csvText = "\uFEFF" + csv.map(row=>row.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";")).join("\r\n");
+    const blob = new Blob([csvText], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob); const a = document.createElement("a");
+    a.href=url; a.download=`KT-Media-Finans-${from||"baslangic"}-${to||"bugun"}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast("Excel ile açılabilen rapor indirildi.");
   }
 
   async function saveFinanceEntry(form, entryType) {
@@ -910,6 +945,8 @@
 
     const record = {
       title: form.get("title").trim(),
+      customer_phone: (form.get("customer_phone") || "").trim(),
+      customer_email: (form.get("customer_email") || "").trim(),
       job_type: form.get("job_type"),
       location: form.get("location").trim(),
       assigned_to: Array.from($("#jobAssignees").selectedOptions).map(option => option.value).join(", "),
@@ -1032,6 +1069,8 @@
   function bindPageEvents() {
     $("#paymentForm")?.addEventListener("submit", event => { event.preventDefault(); saveFinanceEntry(event.currentTarget, "income"); });
     $("#expenseForm")?.addEventListener("submit", event => { event.preventDefault(); saveFinanceEntry(event.currentTarget, "expense"); });
+    $("#exportFinanceBtn")?.addEventListener("click", exportFinanceReport);
+    document.querySelectorAll("[data-delete-finance]").forEach(button => button.addEventListener("click", () => deleteFinanceEntry(button.dataset.deleteFinance)));
     $("#dashboardNewJob")?.addEventListener("click", openJobDialog);
     $("#jobsNewJob")?.addEventListener("click", openJobDialog);
 
