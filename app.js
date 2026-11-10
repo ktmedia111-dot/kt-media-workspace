@@ -359,6 +359,7 @@
               <th>Lokasyon</th>
               <th>Operasyon Ataması</th>
               <th>Durum</th>
+              <th>Detay</th>
               ${isAdmin() ? "<th>İşlem</th>" : ""}
             </tr>
           </thead>
@@ -376,6 +377,7 @@
                     ${escapeHTML(job.status)}
                   </span>
                 </td>
+                <td><button class="btn ghost" type="button" data-job-detail="${escapeHTML(job.id)}">İş detayları</button></td>
                 ${isAdmin() ? `
                   <td>
                     <button class="btn ghost" data-status="${job.id}">
@@ -391,6 +393,72 @@
         </table>
       </div>
     `;
+  }
+
+
+  const moneyTR = value => new Intl.NumberFormat("tr-TR", {
+    style: "currency", currency: "TRY", maximumFractionDigits: 2
+  }).format(Number(value || 0));
+
+  async function openJobDetails(id) {
+    const job = jobs.find(item => String(item.id) === String(id));
+    if (!job) return toast("İş kaydı bulunamadı.");
+
+    let financeHTML = "";
+    if (isAdmin()) {
+      try {
+        const [{ data: feeRow, error: feeError }, { data: payments, error: paymentError }] = await Promise.all([
+          client.from("finance_job_values").select("job_fee").eq("job_id", job.id).maybeSingle(),
+          client.from("finance_entries").select("id,amount,entry_date,category,note").eq("job_id", job.id).eq("entry_type", "income").order("entry_date", { ascending: true })
+        ]);
+        if (feeError) throw feeError;
+        if (paymentError) throw paymentError;
+        const fee = Number(feeRow?.job_fee || 0);
+        const paid = (payments || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+        financeHTML = `
+          <section class="panel" style="margin-top:16px">
+            <h3>Finans özeti <small class="muted">· Yalnızca yetkili yönetici</small></h3>
+            <div class="stats-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-top:12px">
+              <div class="stat"><small>İş bedeli · KDV hariç</small><strong>${moneyTR(fee)}</strong></div>
+              <div class="stat"><small>Kapora ve ara ödemeler</small><strong>${moneyTR(paid)}</strong></div>
+              <div class="stat"><small>Kalan ödeme</small><strong>${moneyTR(Math.max(0, fee-paid))}</strong></div>
+            </div>
+            <h4 style="margin:16px 0 8px">Ödeme geçmişi</h4>
+            ${(payments || []).length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Tarih</th><th>Tür</th><th>Açıklama</th><th>Tutar</th></tr></thead><tbody>
+              ${(payments || []).map(p => `<tr><td>${formatDate(p.entry_date)}</td><td>${escapeHTML(p.category || "Tahsilat")}</td><td>${escapeHTML(p.note || "-")}</td><td>${moneyTR(p.amount)}</td></tr>`).join("")}
+            </tbody></table></div>` : `<p class="muted">Henüz ödeme kaydı yok.</p>`}
+          </section>`;
+      } catch (error) {
+        console.error("İş finans özeti yüklenemedi:", error);
+        financeHTML = `<section class="panel" style="margin-top:16px"><h3>Finans özeti</h3><p class="muted">Finans bilgileri yüklenemedi: ${escapeHTML(error.message)}</p></section>`;
+      }
+    }
+
+    const dialog = $("#jobDetailDialog");
+    if (!dialog) return toast("İş detay penceresi bulunamadı.");
+    dialog.innerHTML = `
+      <div class="modal-head">
+        <div><p class="eyebrow">KT MEDIA · İŞ DETAYI</p><h3>${escapeHTML(job.title || "İş detayları")}</h3></div>
+        <button class="icon-btn" type="button" id="closeJobDetail">✕</button>
+      </div>
+      <div class="form-grid" style="margin-top:14px">
+        <div><small class="muted">İş türü</small><p><b>${escapeHTML(job.job_type || "-")}</b></p></div>
+        <div><small class="muted">Operasyon aşaması</small><p><span class="status ${statusClass(job.status)}">${escapeHTML(job.status || "-")}</span></p></div>
+        <div><small class="muted">Çekim tarihi</small><p><b>${formatDate(job.work_date)}</b></p></div>
+        <div><small class="muted">Planlanan teslim tarihi</small><p><b>${formatDate(job.delivery_date)}</b></p></div>
+        <div><small class="muted">Müşteri telefonu</small><p><b>${escapeHTML(job.customer_phone || "-")}</b></p></div>
+        <div><small class="muted">Müşteri e-posta</small><p><b>${escapeHTML(job.customer_email || "-")}</b></p></div>
+        <div><small class="muted">Lokasyon</small><p><b>${escapeHTML(job.location || "-")}</b></p></div>
+        <div><small class="muted">Operasyon ekibi</small><p><b>${escapeHTML(job.assigned_to || "Atanmadı")}</b></p></div>
+        <div class="wide"><small class="muted">Operasyon notları</small><div style="white-space:pre-wrap;background:#faf8f4;border-radius:10px;padding:13px;margin-top:6px">${escapeHTML(job.notes || "Henüz operasyon notu eklenmemiş.")}</div></div>
+      </div>
+      ${financeHTML}
+      <div class="modal-actions"><button class="btn primary" type="button" id="closeJobDetailBottom">Kapat</button></div>
+    `;
+    const close = () => dialog.close();
+    $("#closeJobDetail").addEventListener("click", close);
+    $("#closeJobDetailBottom").addEventListener("click", close);
+    if (!dialog.open) dialog.showModal();
   }
 
   function stat(label, value, note, icon) {
@@ -1172,6 +1240,10 @@
         page = button.dataset.goto;
         await render();
       });
+    });
+
+    document.querySelectorAll("[data-job-detail]").forEach(button => {
+      button.addEventListener("click", () => openJobDetails(button.dataset.jobDetail));
     });
 
     document.querySelectorAll("[data-status]").forEach(button => {
