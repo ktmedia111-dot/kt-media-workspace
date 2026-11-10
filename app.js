@@ -16,6 +16,8 @@
   let financeEntries = [];
   let financeJobFees = {};
   let teamMembers = [];
+  let archiveDrives = [];
+  let jobArchives = [];
   let notifications = [];
   let notificationChannel = null;
   let page = "dashboard";
@@ -58,6 +60,7 @@
     editing: "Montaj Süreci",
     delivery: "Teslim Takibi",
     archive: "Arşiv",
+    harddisks: "Harddisk Yönetimi",
     team: "Ekip Yönetimi",
     finance: "Finans"
   };
@@ -474,6 +477,75 @@
     `;
   }
 
+
+  async function loadArchiveData() {
+    const [drivesResult, archivesResult] = await Promise.all([
+      client.from("archive_drives").select("*").order("created_at", { ascending: false }),
+      client.from("job_archives").select("*").order("created_at", { ascending: false })
+    ]);
+    if (drivesResult.error) throw drivesResult.error;
+    if (archivesResult.error) throw archivesResult.error;
+    archiveDrives = drivesResult.data || [];
+    jobArchives = archivesResult.data || [];
+  }
+
+  function capacityNumber(value) {
+    const match = String(value || "").replace(",", ".").match(/[0-9]+(?:\.[0-9]+)?/);
+    return match ? Number(match[0]) : 0;
+  }
+
+  function renderHarddisks() {
+    const total = archiveDrives.reduce((sum, drive) => sum + capacityNumber(drive.capacity), 0);
+    const free = archiveDrives.reduce((sum, drive) => sum + capacityNumber(drive.free_space), 0);
+    const used = Math.max(0, total - free);
+    const pct = total ? Math.round(used / total * 100) : 0;
+    const driveCards = archiveDrives.length ? archiveDrives.map(drive => {
+      const cap = capacityNumber(drive.capacity), freeSpace = capacityNumber(drive.free_space);
+      const usedPct = cap ? Math.max(0, Math.min(100, Math.round((cap-freeSpace)/cap*100))) : 0;
+      return `<article class="drive-card">
+        <div class="drive-card-top"><span class="drive-icon">▱</span><div class="drive-card-title"><b>${escapeHTML(drive.drive_name)}</b><small>${escapeHTML(drive.physical_location || "Konum belirtilmedi")}</small></div><span class="pill ${drive.drive_status === "Aktif" ? "green" : ""}">${escapeHTML(drive.drive_status)}</span></div>
+        <div class="drive-capacity"><b>${escapeHTML(drive.capacity || "Kapasite girilmedi")}</b><span>${escapeHTML(drive.free_space || "Boş alan girilmedi")} boş</span></div>
+        <div class="capacity-track"><i style="width:${usedPct}%"></i></div>
+        <small>${usedPct}% dolu · Seri No: ${escapeHTML(drive.serial_number || "—")}</small>
+        ${drive.notes ? `<p class="muted drive-note">${escapeHTML(drive.notes)}</p>` : ""}
+      </article>`;
+    }).join("") : `<div class="empty">Henüz harddisk eklenmemiş. İlk diskinizi ekleyerek başlayın.</div>`;
+    const jobOptions = jobs.map(job => `<option value="${escapeHTML(job.id)}">${escapeHTML(job.title)}</option>`).join("");
+    const driveOptions = archiveDrives.map(drive => `<option value="${escapeHTML(drive.id)}">${escapeHTML(drive.drive_name)}</option>`).join("");
+    const rows = jobArchives.length ? jobArchives.map(record => {
+      const job = jobs.find(item => String(item.id) === String(record.job_id));
+      const mainDrive = archiveDrives.find(drive => String(drive.id) === String(record.drive_id));
+      const backupDrive = archiveDrives.find(drive => String(drive.id) === String(record.backup_drive_id));
+      return `<tr><td><b>${escapeHTML(job?.title || "Silinmiş / bulunamayan iş")}</b><small class="archive-sub">${escapeHTML(job?.job_type || "")}</small></td><td>${formatDate(job?.work_date)}</td><td><span class="pill">${escapeHTML(mainDrive?.drive_name || "Disk seçilmedi")}</span></td><td>${escapeHTML(backupDrive?.drive_name || "—")}</td><td class="archive-path">${escapeHTML(record.folder_path)}</td><td><span class="pill ${record.backup_status === "Tamamlandı" ? "green" : "blue"}">${escapeHTML(record.backup_status)}</span></td></tr>`;
+    }).join("") : `<tr><td colspan="6"><div class="empty">Henüz çekim–disk bağlantısı yok.</div></td></tr>`;
+    return `<div class="section-heading"><div><h2>Harddisk Yönetimi</h2><p class="muted">Arşiv disklerinizi ve çekimlerin hangi diskte saklandığını yönetin.</p></div>${isAdmin() ? `<button class="btn primary" id="toggleDriveForm">＋ Yeni Disk Ekle</button>` : ""}</div>
+      <div class="stats-grid archive-stats">${stat("Toplam disk", archiveDrives.length, "Kayıtlı depolama birimi", "▱")}${stat("Toplam kapasite", `${total.toLocaleString("tr-TR")} TB`, "Tanımlı disk kapasitesi", "▤")}${stat("Kullanılan alan", `${used.toLocaleString("tr-TR")} TB`, `%${pct} doluluk`, "◔")}${stat("Boş alan", `${free.toLocaleString("tr-TR")} TB`, "Girilen boş alan bilgisi", "▱")}</div>
+      ${isAdmin() ? `<section class="panel archive-form-panel hidden" id="driveFormPanel"><div class="panel-heading"><h3>Yeni harddisk kaydı</h3><button class="icon-btn" type="button" id="closeDriveForm">✕</button></div><form id="driveForm" class="archive-form"><label>Disk adı<input name="drive_name" required placeholder="Örn. Disk 01 – Ana Arşiv"></label><label>Seri numarası<input name="serial_number" placeholder="Seri numarası"></label><label>Kapasite<input name="capacity" placeholder="Örn. 8 TB" required></label><label>Boş alan<input name="free_space" placeholder="Örn. 5.6 TB"></label><label>Fiziksel konum<input name="physical_location" placeholder="Örn. Stüdyo / Kasa 2"></label><label>Durum<select name="drive_status"><option>Aktif</option><option>Yedek</option><option>Arşiv</option><option>Arızalı</option></select></label><label class="wide">Not<textarea name="notes" rows="2"></textarea></label><button class="btn primary" type="submit">Diski kaydet</button></form></section>` : ""}
+      <section class="panel"><div class="panel-heading"><h3>Disklerim</h3><span class="muted">${archiveDrives.length} disk</span></div><div class="drive-grid">${driveCards}</div></section>
+      <section class="panel archive-record-panel"><div class="panel-heading"><div><h3>Arşiv Kayıtları (Çekim – Disk Bağlantısı)</h3><small class="muted">Her çekimin ana diskini, yedek diskini ve klasör yolunu kaydedin.</small></div><button class="btn primary" id="toggleArchiveForm">＋ Yeni Arşiv Kaydı</button></div>
+      <div class="archive-form-panel hidden" id="archiveFormPanel"><form id="archiveForm" class="archive-form"><label class="wide">Çekim / Müşteri<select name="job_id" required><option value="">İş seçin</option>${jobOptions}</select></label><label>Ana disk<select name="drive_id" required><option value="">Disk seçin</option>${driveOptions}</select></label><label>Yedek disk<select name="backup_drive_id"><option value="">Yedek disk yok</option>${driveOptions}</select></label><label class="wide">Klasör yolu<input name="folder_path" required placeholder="2026/Düğün/Müşteri-Adı"></label><label>Yedek durumu<select name="backup_status"><option>Bekliyor</option><option>Devam Ediyor</option><option>Tamamlandı</option></select></label><label>Yedekleme tarihi<input name="backup_date" type="date"></label><label class="wide">Not<textarea name="notes" rows="2"></textarea></label><button class="btn primary" type="submit">Arşiv bağlantısını kaydet</button></form></div>
+      <div class="table-wrap"><table class="data-table archive-table"><thead><tr><th>Müşteri / İş</th><th>Çekim tarihi</th><th>Ana disk</th><th>Yedek disk</th><th>Klasör yolu</th><th>Yedek durumu</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+  }
+
+  async function saveDrive(form) {
+    if (!isAdmin()) return toast("Disk eklemek için yönetici yetkisi gerekiyor.");
+    const data = new FormData(form);
+    const row = Object.fromEntries(data.entries());
+    row.created_by = user.id;
+    const { error } = await client.from("archive_drives").insert(row);
+    if (error) return toast("Disk kaydedilemedi: " + error.message);
+    await loadArchiveData(); await render(); toast("Harddisk kaydedildi.");
+  }
+
+  async function saveJobArchive(form) {
+    const data = new FormData(form);
+    const row = { job_id: Number(data.get("job_id")), drive_id: data.get("drive_id"), backup_drive_id: data.get("backup_drive_id") || null, folder_path: String(data.get("folder_path") || "").trim(), backup_status: data.get("backup_status"), backup_date: data.get("backup_date") || null, notes: String(data.get("notes") || "").trim(), created_by: user.id };
+    if (!row.job_id || !row.drive_id || !row.folder_path) return toast("İş, ana disk ve klasör yolu zorunludur.");
+    const { error } = await client.from("job_archives").insert(row);
+    if (error) return toast("Arşiv bağlantısı kaydedilemedi: " + error.message);
+    await loadArchiveData(); await render(); toast("Çekim–disk bağlantısı kaydedildi.");
+  }
+
   function renderDashboard() {
     const today = todayString();
     const active = jobs.filter(j =>
@@ -877,6 +949,10 @@
     if (page === "archive") {
       html = renderStage("Teslim Edildi", "Arşiv", "Tamamlanmış işler.");
     }
+    if (page === "harddisks") {
+      try { await loadArchiveData(); html = renderHarddisks(); }
+      catch (error) { html = `<section class="panel">Harddisk verileri yüklenemedi: ${escapeHTML(error.message)}<p class="muted">Veritabanı kurulumunu ve erişim izinlerini kontrol edin.</p></section>`; }
+    }
     if (page === "team") html = await renderTeam();
     if (page === "finance") {
       if (!isAdmin()) html = `<section class="panel">Bu alan yalnızca yöneticilere açıktır.</section>`;
@@ -1217,6 +1293,11 @@
   }
 
   function bindPageEvents() {
+    $("#toggleDriveForm")?.addEventListener("click", () => $("#driveFormPanel")?.classList.toggle("hidden"));
+    $("#closeDriveForm")?.addEventListener("click", () => $("#driveFormPanel")?.classList.add("hidden"));
+    $("#driveForm")?.addEventListener("submit", event => { event.preventDefault(); saveDrive(event.currentTarget); });
+    $("#toggleArchiveForm")?.addEventListener("click", () => $("#archiveFormPanel")?.classList.toggle("hidden"));
+    $("#archiveForm")?.addEventListener("submit", event => { event.preventDefault(); saveJobArchive(event.currentTarget); });
     $("#paymentForm")?.addEventListener("submit", event => { event.preventDefault(); saveFinanceEntry(event.currentTarget, "income"); });
     $("#expenseForm")?.addEventListener("submit", event => { event.preventDefault(); saveFinanceEntry(event.currentTarget, "expense"); });
     $("#exportFinanceBtn")?.addEventListener("click", exportFinanceReport);
