@@ -55,6 +55,7 @@
     dashboard: "Genel Bakış",
     calendar: "Takvim",
     jobs: "Çekim İşleri",
+    production: "Prodüksiyon Merkezi",
     editing: "Montaj Süreci",
     delivery: "Teslim Takibi",
     archive: "Arşiv",
@@ -294,6 +295,7 @@
   function statusClass(status) {
     if (status === "Teslim Edildi") return "green";
     if (status === "Montajda") return "blue";
+    if (status === "Kontrolde") return "orange";
     if (status === "Teslime Hazır") return "orange";
     return "neutral";
   }
@@ -531,6 +533,94 @@
     `;
   }
 
+  function renderProductionCenter() {
+    const stages = ["Planlandı", "Çekim Tamamlandı", "Montajda", "Kontrolde", "Teslime Hazır", "Teslim Edildi"];
+    const active = jobs.filter(j => j.status !== "Teslim Edildi");
+    const today = todayString();
+    const overdue = active.filter(j => j.delivery_date && j.delivery_date < today).length;
+    const rows = [...jobs].sort((a,b) => (a.delivery_date || "9999").localeCompare(b.delivery_date || "9999"));
+    return `
+      <div class="section-heading"><div><h2>Prodüksiyon Merkezi</h2><p class="muted">Çekimden teslimata kadar bütün işleri tek listeden yönetin.</p></div><button class="btn primary" id="productionNewJob">＋ Yeni İş</button></div>
+      <div class="production-summary">
+        <div><b>${active.length}</b><span>Aktif iş</span></div>
+        <div><b>${jobs.filter(j=>j.status==="Montajda").length}</b><span>Montajda</span></div>
+        <div><b>${jobs.filter(j=>j.status==="Kontrolde").length}</b><span>Kontrolde</span></div>
+        <div><b>${jobs.filter(j=>j.status==="Teslime Hazır").length}</b><span>Teslime hazır</span></div>
+        <div class="late"><b>${overdue}</b><span>Geciken</span></div>
+      </div>
+      <section class="panel production-panel">
+        <div class="production-filters">
+          <input id="productionSearch" placeholder="İş, müşteri, lokasyon veya ekip ara...">
+          <select id="productionStage"><option value="">Tüm aşamalar</option>${stages.map(x=>`<option>${x}</option>`).join("")}</select>
+          <select id="productionDue"><option value="">Tüm teslimatlar</option><option value="overdue">Gecikenler</option><option value="upcoming">Önümüzdeki 3 gün</option></select>
+        </div>
+        <p class="production-count" id="productionCount">${rows.length} iş listeleniyor</p>
+        <div class="table-wrap"><table class="data-table production-table"><thead><tr><th>İş / Müşteri</th><th>Çekim tarihi</th><th>Ekip</th><th>Aşama</th><th>Teslim tarihi</th><th>Detay</th></tr></thead><tbody id="productionRows">${productionTableRows(rows)}</tbody></table></div>
+      </section>
+      <div id="productionDetail"></div>`;
+  }
+
+  function productionTableRows(list) {
+    if (!list.length) return `<tr><td colspan="6"><div class="empty">Bu filtreye uygun iş bulunamadı.</div></td></tr>`;
+    return list.map(j => {
+      const late = j.status !== "Teslim Edildi" && j.delivery_date && j.delivery_date < todayString();
+      return `<tr><td><b>${escapeHTML(j.title || "İsimsiz iş")}</b><small class="production-sub">${escapeHTML(j.job_type || "İş")}${j.location ? " · " + escapeHTML(j.location) : ""}</small></td><td>${formatDate(j.work_date)}</td><td>${j.assigned_to ? j.assigned_to.split(",").map(n=>`<span class="assignment-chip">${escapeHTML(n.trim())}</span>`).join(" ") : "<span class=\"muted\">Atanmadı</span>"}</td><td><span class="status ${statusClass(j.status)}">${escapeHTML(j.status || "Durum yok")}</span></td><td>${late ? `<b class="production-late">Gecikti · </b>` : ""}${formatDate(j.delivery_date)}</td><td><button class="btn ghost" data-production-detail="${escapeHTML(j.id)}">İşi Aç</button></td></tr>`;
+    }).join("");
+  }
+
+  function productionDetailHTML(job) {
+    const stages = ["Planlandı", "Çekim Tamamlandı", "Montajda", "Kontrolde", "Teslime Hazır", "Teslim Edildi"];
+    return `<section class="panel production-detail"><div class="section-heading"><div><h3>${escapeHTML(job.title)}</h3><p class="muted">İş detayları ve aşama yönetimi</p></div><button class="btn ghost" id="closeProductionDetail">Kapat</button></div>
+      <div class="production-detail-grid">
+        <div><small>İş türü</small><b>${escapeHTML(job.job_type || "-")}</b></div><div><small>Çekim tarihi</small><b>${formatDate(job.work_date)}</b></div><div><small>Son teslim</small><b>${formatDate(job.delivery_date)}</b></div>
+        <div><small>Lokasyon</small><b>${escapeHTML(job.location || "-")}</b></div><div><small>Atanan ekip</small><b>${escapeHTML(job.assigned_to || "Atanmadı")}</b></div><div><small>Durum</small><b>${escapeHTML(job.status || "-")}</b></div>
+        <div><small>Müşteri telefonu</small><b>${escapeHTML(job.customer_phone || "-")}</b></div><div><small>Müşteri e-posta</small><b>${escapeHTML(job.customer_email || "-")}</b></div>
+      </div><div class="production-notes"><small>İş notları</small><p>${escapeHTML(job.notes || "Henüz not eklenmemiş.")}</p></div>
+      ${isAdmin() ? `<div class="production-status-edit"><label for="productionStatusSelect">İş aşamasını değiştir</label><select id="productionStatusSelect">${stages.map(x=>`<option value="${x}" ${job.status===x?"selected":""}>${x}</option>`).join("")}</select><button class="btn primary" id="saveProductionStatus" data-job-id="${escapeHTML(job.id)}">Aşamayı Kaydet</button></div>` : ""}
+      <p class="muted production-hint">Bu görünüm mevcut iş kayıtlarını kullanır. İş bedeli ve finans bilgileri bu ekranda gösterilmez.</p></section>`;
+  }
+
+  function bindProductionCenter() {
+    const apply = () => {
+      const q = (document.getElementById("productionSearch")?.value || "").toLocaleLowerCase("tr-TR");
+      const stage = document.getElementById("productionStage")?.value || "";
+      const due = document.getElementById("productionDue")?.value || "";
+      const today = todayString();
+      const filtered = [...jobs].filter(j => {
+        const text = [j.title,j.job_type,j.location,j.assigned_to,j.customer_phone,j.customer_email].join(" ").toLocaleLowerCase("tr-TR");
+        if (q && !text.includes(q)) return false;
+        if (stage && j.status !== stage) return false;
+        if (due === "overdue" && !(j.status !== "Teslim Edildi" && j.delivery_date && j.delivery_date < today)) return false;
+        if (due === "upcoming") { const days = j.delivery_date ? Math.round((new Date(j.delivery_date+"T12:00:00")-new Date(today+"T12:00:00"))/86400000) : 999; if (j.status === "Teslim Edildi" || days < 0 || days > 3) return false; }
+        return true;
+      }).sort((a,b)=>(a.delivery_date||"9999").localeCompare(b.delivery_date||"9999"));
+      document.getElementById("productionRows").innerHTML = productionTableRows(filtered);
+      document.getElementById("productionCount").textContent = `${filtered.length} iş listeleniyor`;
+      bindProductionRows();
+    };
+    ["productionSearch","productionStage","productionDue"].forEach(id=>{const el=document.getElementById(id);el?.addEventListener(id==="productionSearch"?"input":"change",apply);});
+    document.getElementById("productionNewJob")?.addEventListener("click",openJobDialog);
+    bindProductionRows();
+  }
+
+  function bindProductionRows() {
+    document.querySelectorAll("[data-production-detail]").forEach(btn=>btn.addEventListener("click",()=>{
+      const job=jobs.find(x=>String(x.id)===String(btn.dataset.productionDetail));
+      const panel=document.getElementById("productionDetail");
+      if(!job||!panel)return;
+      panel.innerHTML=productionDetailHTML(job);
+      document.getElementById("closeProductionDetail")?.addEventListener("click",()=>panel.replaceChildren());
+      document.getElementById("saveProductionStatus")?.addEventListener("click",async e=>{
+        if(!isAdmin())return;
+        const id=e.currentTarget.dataset.jobId, status=document.getElementById("productionStatusSelect")?.value;
+        const {error}=await client.from("jobs").update({status}).eq("id",id);
+        if(error){toast("Aşama güncellenemedi: "+error.message);return;}
+        await loadJobs(); await render(); toast("İş aşaması güncellendi.");
+      });
+      panel.scrollIntoView({behavior:"smooth",block:"nearest"});
+    }));
+  }
+
   function renderStage(status, title, description) {
     const list = jobs.filter(j => j.status === status);
     return `
@@ -746,6 +836,7 @@
     if (page === "dashboard") html = renderDashboard();
     if (page === "calendar") html = renderCalendar();
     if (page === "jobs") html = renderJobs();
+    if (page === "production") html = renderProductionCenter();
     if (page === "editing") {
       html = renderStage("Montajda", "Montaj Süreci", "Kurgu aşamasındaki işler.");
     }
@@ -1034,6 +1125,7 @@
       "Planlandı",
       "Çekim Tamamlandı",
       "Montajda",
+      "Kontrolde",
       "Teslime Hazır",
       "Teslim Edildi"
     ];
@@ -1136,6 +1228,7 @@
     document.querySelectorAll("[data-reactivate-member]").forEach(button => {
       button.addEventListener("click", () => reactivateMember(button.dataset.reactivateMember));
     });
+    if (page === "production") bindProductionCenter();
   }
 
   function bindEvents() {
