@@ -589,7 +589,7 @@
 
     const { data, error } = await client
       .from("profiles")
-      .select("id,display_name,role,approved,created_at")
+      .select("id,display_name,role,approved,active,created_at")
       .order("created_at", { ascending: false });
 
     if (error) return `<section class="panel">Ekip listesi alınamadı: ${escapeHTML(error.message)}</section>`;
@@ -598,20 +598,24 @@
       <section class="panel">
         <h2>Ekip Yönetimi</h2>
         <p class="muted">Yeni ekip hesaplarını buradan kontrol edebilirsin.</p>
-        ${data.map(person => `
-          <div class="team-row">
-            <div>
-              <b>${escapeHTML(person.display_name || "İsimsiz kullanıcı")}</b>
-              <small>${escapeHTML(person.role || "Ekip üyesi")}</small>
+        ${data.map(person => {
+          const active = person.active !== false;
+          const isSelf = person.id === user.id;
+          const isOtherAdmin = person.role === "admin" && !isSelf;
+          return `
+            <div class="team-row">
+              <div>
+                <b>${escapeHTML(person.display_name || "İsimsiz kullanıcı")}</b>
+                <small>${escapeHTML(person.role || "Ekip üyesi")}</small>
+              </div>
+              <span>${!active ? "Erişimi kapalı" : person.approved ? "Onaylı" : "Onay bekliyor"}</span>
+              ${active && !person.approved ? `<button class="btn primary" data-approve="${person.id}">Onayla</button>` : ""}
+              ${!isSelf && !isOtherAdmin ? (active
+                ? `<button class="btn danger" data-deactivate-member="${person.id}" data-member-name="${escapeHTML(person.display_name || "Bu ekip üyesi")}">Sil</button>`
+                : `<button class="btn" data-reactivate-member="${person.id}">Yeniden Etkinleştir</button>`) : ""}
             </div>
-            <span>${person.approved ? "Onaylı" : "Onay bekliyor"}</span>
-            ${person.approved ? "" : `
-              <button class="btn primary" data-approve="${person.id}">
-                Onayla
-              </button>
-            `}
-          </div>
-        `).join("")}
+          `;
+        }).join("")}
       </section>
     `;
   }
@@ -772,6 +776,7 @@
       .from("profiles")
       .select("display_name")
       .eq("approved", true)
+      .eq("active", true)
       .order("display_name", { ascending: true });
     if (error) throw error;
     teamMembers = (data || []).map(person => person.display_name).filter(Boolean);
@@ -790,7 +795,7 @@
   async function loadProfile() {
     const { data, error } = await client
       .from("profiles")
-      .select("id,display_name,role,approved")
+      .select("id,display_name,role,approved,active")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -816,6 +821,11 @@
     }
 
     profile = data;
+
+    if (profile.active === false) {
+      await client.auth.signOut();
+      throw new Error("Hesabınız yönetici tarafından devre dışı bırakılmıştır.");
+    }
 
     if (profile.approved !== true) {
       await client.auth.signOut();
@@ -1066,6 +1076,24 @@
     toast("Ekip üyesi onaylandı.");
   }
 
+  async function deactivateMember(id, memberName) {
+    if (!isAdmin() || id === user.id) return;
+    if (!confirm(`${memberName} adlı ekip üyesinin erişimini kapatmak istiyor musunuz?\n\nEski iş kayıtları ve geçmiş görev bilgileri korunacaktır.`)) return;
+    const { error } = await client.from("profiles").update({ active: false }).eq("id", id).neq("role", "admin");
+    if (error) { toast("Ekip üyesi devre dışı bırakılamadı: " + error.message); return; }
+    await loadTeamMembers(); await render();
+    toast("Ekip üyesinin erişimi kapatıldı. Eski iş kayıtları korundu.");
+  }
+
+  async function reactivateMember(id) {
+    if (!isAdmin()) return;
+    if (!confirm("Bu ekip üyesinin erişimini yeniden açmak istiyor musunuz?")) return;
+    const { error } = await client.from("profiles").update({ active: true }).eq("id", id).neq("role", "admin");
+    if (error) { toast("Ekip üyesi yeniden etkinleştirilemedi: " + error.message); return; }
+    await render();
+    toast("Ekip üyesi yeniden etkinleştirildi. Onay durumu ayrıca kontrol edilmelidir.");
+  }
+
   function bindPageEvents() {
     $("#paymentForm")?.addEventListener("submit", event => { event.preventDefault(); saveFinanceEntry(event.currentTarget, "income"); });
     $("#expenseForm")?.addEventListener("submit", event => { event.preventDefault(); saveFinanceEntry(event.currentTarget, "expense"); });
@@ -1101,6 +1129,12 @@
 
     document.querySelectorAll("[data-approve]").forEach(button => {
       button.addEventListener("click", () => approveMember(button.dataset.approve));
+    });
+    document.querySelectorAll("[data-deactivate-member]").forEach(button => {
+      button.addEventListener("click", () => deactivateMember(button.dataset.deactivateMember, button.dataset.memberName || "Ekip üyesi"));
+    });
+    document.querySelectorAll("[data-reactivate-member]").forEach(button => {
+      button.addEventListener("click", () => reactivateMember(button.dataset.reactivateMember));
     });
   }
 
