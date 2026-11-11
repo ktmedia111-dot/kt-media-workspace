@@ -18,6 +18,7 @@
   let teamMembers = [];
   let archiveDrives = [];
   let jobArchives = [];
+  let urgentTasks = [];
   let notifications = [];
   let notificationChannel = null;
   let page = "dashboard";
@@ -546,6 +547,49 @@
     await loadArchiveData(); await render(); toast("Çekim–disk bağlantısı kaydedildi.");
   }
 
+
+  async function loadUrgentTasks() {
+    const { data, error } = await client.from("urgent_tasks").select("*").order("completed", { ascending: true }).order("due_date", { ascending: true, nullsFirst: false }).order("created_at", { ascending: false });
+    if (error) throw error;
+    urgentTasks = data || [];
+  }
+
+  function renderUrgentTasks() {
+    const today = todayString();
+    const pending = urgentTasks.filter(task => !task.completed).length;
+    const rows = urgentTasks.length ? urgentTasks.map(task => {
+      const overdue = !task.completed && task.due_date && task.due_date < today;
+      return `<div class="urgent-task-row ${task.completed ? "is-complete" : ""}">
+        <label class="urgent-task-check"><input type="checkbox" data-task-done="${escapeHTML(task.id)}" ${task.completed ? "checked" : ""}><span></span></label>
+        <div class="urgent-task-copy"><b>${escapeHTML(task.title)}</b><small class="${overdue ? "urgent-overdue" : ""}">${task.due_date ? `${overdue ? "Gecikti · " : "Son tarih · "}${formatDate(task.due_date)}` : "Tarih belirtilmedi"}</small></div>
+        ${overdue ? `<span class="urgent-task-badge">GECİKTİ</span>` : ""}
+      </div>`;
+    }).join("") : `<div class="urgent-empty">Henüz acil yapılacak iş eklenmedi.</div>`;
+    return `<section class="urgent-panel">
+      <div class="urgent-panel-head"><div><span class="urgent-kicker">GÖREV TAKİBİ</span><h3>⚡ Acil Yapılacaklar</h3><p>${pending} bekleyen iş · Tamamlananlar listede kalır</p></div><span class="urgent-count">${pending} BEKLEYEN</span></div>
+      <form id="urgentTaskForm" class="urgent-task-form"><input name="title" required maxlength="180" placeholder="Örn. Ahmet & Zeynep albümü hazırlanacak"><input name="due_date" type="date" aria-label="Son tarih"><button class="btn urgent-add" type="submit">＋ Ekle</button></form>
+      <div class="urgent-task-list">${rows}</div>
+    </section>`;
+  }
+
+  async function saveUrgentTask(form) {
+    const data = new FormData(form);
+    const title = String(data.get("title") || "").trim();
+    if (!title) return toast("Yapılacak işi yazın.");
+    const { error } = await client.from("urgent_tasks").insert({ title, due_date: data.get("due_date") || null, created_by: user.id });
+    if (error) return toast("Görev eklenemedi: " + error.message);
+    await loadUrgentTasks();
+    await render();
+    toast("Yapılacak iş eklendi.");
+  }
+
+  async function toggleUrgentTask(id, completed) {
+    const { error } = await client.from("urgent_tasks").update({ completed, completed_at: completed ? new Date().toISOString() : null }).eq("id", id);
+    if (error) return toast("Görev güncellenemedi: " + error.message);
+    await loadUrgentTasks();
+    await render();
+  }
+
   function renderDashboard() {
     const today = todayString();
     const active = jobs.filter(j =>
@@ -574,6 +618,8 @@
         ${stat("Bugünkü çekim", shoots.length, "Bugün planlanan", "▦")}
         ${stat("Montajda", editing.length, "Kurgu aşamasındaki işler", "◫")}
       </div>
+
+      ${renderUrgentTasks()}
 
       <div class="dashboard-grid">
         <section class="panel">
@@ -937,7 +983,10 @@
 
     let html = "";
 
-    if (page === "dashboard") html = renderDashboard();
+    if (page === "dashboard") {
+      try { await loadUrgentTasks(); html = renderDashboard(); }
+      catch (error) { html = renderDashboard() + `<section class="panel">Acil yapılacaklar yüklenemedi: ${escapeHTML(error.message)}. Veritabanı SQL kurulumunu kontrol edin.</section>`; }
+    }
     if (page === "calendar") html = renderCalendar();
     if (page === "jobs") html = renderJobs();
     if (page === "editing") {
@@ -1293,6 +1342,8 @@
   }
 
   function bindPageEvents() {
+    $("#urgentTaskForm")?.addEventListener("submit", event => { event.preventDefault(); saveUrgentTask(event.currentTarget); });
+    document.querySelectorAll("[data-task-done]").forEach(input => input.addEventListener("change", () => toggleUrgentTask(input.dataset.taskDone, input.checked)));
     $("#toggleDriveForm")?.addEventListener("click", () => $("#driveFormPanel")?.classList.toggle("hidden"));
     $("#closeDriveForm")?.addEventListener("click", () => $("#driveFormPanel")?.classList.add("hidden"));
     $("#driveForm")?.addEventListener("submit", event => { event.preventDefault(); saveDrive(event.currentTarget); });
