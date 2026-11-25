@@ -609,7 +609,7 @@
           <h1>Merhaba, ${escapeHTML(profile.display_name || user.email)} 👋</h1>
           <p class="muted">Bugünün iş akışına genel bakış.</p>
         </div>
-        <button class="btn primary" id="dashboardNewJob">＋ Yeni iş oluştur</button>
+        <div class="welcome-actions"><a class="btn studio-dashboard-link" href="https://panel.ktmedia.tr/?studio=1" target="_blank" rel="noopener noreferrer">Stüdyo Paneli</a><button class="btn primary" id="dashboardNewJob">＋ Yeni iş oluştur</button></div>
       </div>
 
       <div class="stats-grid">
