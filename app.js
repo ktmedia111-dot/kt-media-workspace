@@ -563,10 +563,11 @@
         <label class="urgent-task-check"><input type="checkbox" data-task-done="${escapeHTML(task.id)}" ${task.completed ? "checked" : ""}><span></span></label>
         <div class="urgent-task-copy"><b>${escapeHTML(task.title)}</b><small class="${overdue ? "urgent-overdue" : ""}">${task.due_date ? `${overdue ? "Gecikti · " : "Son tarih · "}${formatDate(task.due_date)}` : "Tarih belirtilmedi"}</small></div>
         ${overdue ? `<span class="urgent-task-badge">GECİKTİ</span>` : ""}
+        ${task.completed && isAdmin() ? `<button type="button" class="urgent-task-delete" data-task-delete="${escapeHTML(task.id)}" aria-label="${escapeHTML(task.title)} görevini sil">Sil</button>` : ""}
       </div>`;
     }).join("") : `<div class="urgent-empty">Henüz acil yapılacak iş eklenmedi.</div>`;
     return `<section class="urgent-panel">
-      <div class="urgent-panel-head"><div><span class="urgent-kicker">GÖREV TAKİBİ</span><h3>⚡ Acil Yapılacaklar</h3><p>${pending} bekleyen iş · Tamamlananlar listede kalır</p></div><span class="urgent-count">${pending} BEKLEYEN</span></div>
+      <div class="urgent-panel-head"><div><span class="urgent-kicker">GÖREV TAKİBİ</span><h3>⚡ Acil Yapılacaklar</h3><p>${pending} bekleyen iş · ${isAdmin() ? "Tamamlanan işleri Sil ile kaldırabilirsiniz" : "Tamamlanan görevler işaretli görünür"}</p></div><span class="urgent-count">${pending} BEKLEYEN</span></div>
       <form id="urgentTaskForm" class="urgent-task-form"><input name="title" required maxlength="180" placeholder="Örn. Ahmet & Zeynep albümü hazırlanacak"><input name="due_date" type="date" aria-label="Son tarih"><button class="btn urgent-add" type="submit">＋ Ekle</button></form>
       <div class="urgent-task-list">${rows}</div>
     </section>`;
@@ -588,6 +589,18 @@
     if (error) return toast("Görev güncellenemedi: " + error.message);
     await loadUrgentTasks();
     await render();
+  }
+
+  async function deleteUrgentTask(id) {
+    if (!isAdmin()) return toast("Bu işlem için yönetici yetkisi gerekiyor.");
+    const task = urgentTasks.find(item => String(item.id) === String(id));
+    if (!task || !task.completed) return;
+    if (!confirm(`“${task.title}” tamamlanan görevini kalıcı olarak silmek istiyor musunuz? Bu işlem geri alınamaz.`)) return;
+    const { error } = await client.from("urgent_tasks").delete().eq("id", id).eq("completed", true);
+    if (error) return toast("Görev silinemedi: " + error.message);
+    await loadUrgentTasks();
+    await render();
+    toast("Tamamlanan görev silindi.");
   }
 
   function renderDashboard() {
@@ -1344,6 +1357,7 @@
   function bindPageEvents() {
     $("#urgentTaskForm")?.addEventListener("submit", event => { event.preventDefault(); saveUrgentTask(event.currentTarget); });
     document.querySelectorAll("[data-task-done]").forEach(input => input.addEventListener("change", () => toggleUrgentTask(input.dataset.taskDone, input.checked)));
+    document.querySelectorAll("[data-task-delete]").forEach(button => button.addEventListener("click", () => deleteUrgentTask(button.dataset.taskDelete)));
     $("#toggleDriveForm")?.addEventListener("click", () => $("#driveFormPanel")?.classList.toggle("hidden"));
     $("#closeDriveForm")?.addEventListener("click", () => $("#driveFormPanel")?.classList.add("hidden"));
     $("#driveForm")?.addEventListener("submit", event => { event.preventDefault(); saveDrive(event.currentTarget); });

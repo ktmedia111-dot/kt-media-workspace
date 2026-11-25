@@ -46,6 +46,9 @@
 .urgent-task-row.is-complete .urgent-task-copy b{text-decoration:line-through;color:#8c9290}
 .urgent-task-row.is-complete .urgent-task-copy small{color:#7a9b83}
 .urgent-empty{padding:16px 4px;color:#8c7a77;font-size:12px}
+.urgent-task-delete{flex:none;min-width:58px;min-height:44px;padding:0 12px;border:1px solid #e0a5a0;border-radius:8px;background:#fff;color:#a6302a;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer}
+.urgent-task-delete:hover{border-color:#a6302a;background:#fff0ee;color:#8f211d}
+.urgent-task-delete:focus-visible{outline:3px solid #c9473f;outline-offset:2px}
 @media(max-width:650px){.urgent-panel{padding:14px}.urgent-task-form{grid-template-columns:1fr}.urgent-task-form button{justify-self:start}.urgent-panel-head{align-items:flex-start}}
 
 /* Studio portal shortcut */
